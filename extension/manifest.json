@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "RealDeal AI",
+  "version": "1.0.0",
+  "description": "Real-time investment analysis for Zillow listings",
+  "permissions": ["sidePanel", "activeTab", "storage"],
+  "host_permissions": ["https://www.zillow.com/*"],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.zillow.com/homedetails/*"],
+      "js": ["content/scraper.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel/panel.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

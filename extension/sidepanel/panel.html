@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RealDeal AI</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">&#9889;</span>
+        <span class="logo-text">RealDeal AI</span>
+      </div>
+      <div id="address" class="address">Waiting for Zillow listing...</div>
+    </header>
+
+    <!-- Loading State -->
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Analyzing property...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="empty-state">
+      <p>Navigate to a Zillow property listing to see investment analysis.</p>
+    </div>
+
+    <!-- Analysis Results -->
+    <div id="results" class="hidden">
+
+      <!-- Verdict Banner -->
+      <section id="verdict-section" class="verdict-section hidden">
+        <div id="verdict-badge" class="verdict-badge"></div>
+        <div id="verdict-confidence" class="verdict-confidence"></div>
+        <div id="investment-score" class="investment-score"></div>
+        <p id="verdict-summary" class="verdict-summary"></p>
+      </section>
+
+      <!-- Property + Rent -->
+      <section class="two-col">
+        <div class="card">
+          <h3>Property</h3>
+          <div class="stat-row">
+            <span class="stat-label">Price</span>
+            <span id="stat-price" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Beds / Baths</span>
+            <span id="stat-bedbath" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Sqft</span>
+            <span id="stat-sqft" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Year Built</span>
+            <span id="stat-year" class="stat-value">—</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Rent Estimate</h3>
+          <div id="rent-amount" class="rent-amount">—</div>
+          <div id="rent-confidence" class="rent-confidence"></div>
+          <div id="rent-source" class="rent-source"></div>
+          <div id="rent-comps" class="rent-comps"></div>
+        </div>
+      </section>
+
+      <!-- Investment Metrics -->
+      <section class="card">
+        <h3>Investment Metrics</h3>
+        <div class="metrics-grid">
+          <div class="metric">
+            <div id="metric-caprate" class="metric-value">—</div>
+            <div class="metric-label">Cap Rate</div>
+          </div>
+          <div class="metric">
+            <div id="metric-cashflow" class="metric-value">—</div>
+            <div class="metric-label">Monthly Cash Flow</div>
+          </div>
+          <div class="metric">
+            <div id="metric-coc" class="metric-value">—</div>
+            <div class="metric-label">Cash-on-Cash</div>
+          </div>
+          <div class="metric">
+            <div id="metric-noi" class="metric-value">—</div>
+            <div class="metric-label">NOI</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BRRRR + Flip -->
+      <section class="two-col">
+        <div class="card">
+          <h3>BRRRR Analysis</h3>
+          <div id="brrrr-rating" class="strategy-rating">—</div>
+          <div class="stat-row">
+            <span class="stat-label">ARV</span>
+            <span id="brrrr-arv" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Refi Amount</span>
+            <span id="brrrr-refi" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Cash Left</span>
+            <span id="brrrr-cash" class="stat-value">—</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Flip Potential</h3>
+          <div id="flip-rating" class="strategy-rating">—</div>
+          <div class="stat-row">
+            <span class="stat-label">Est. Profit</span>
+            <span id="flip-profit" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">ROI</span>
+            <span id="flip-roi" class="stat-value">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Rehab (est.)</span>
+            <span id="flip-rehab" class="stat-value">—</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Neighborhood -->
+      <section id="neighborhood-section" class="card hidden">
+        <h3>Neighborhood</h3>
+        <div class="bar-stat">
+          <span class="bar-label">Crime Rate</span>
+          <div class="bar-track"><div id="bar-crime" class="bar-fill"></div></div>
+          <span id="bar-crime-label" class="bar-value"></span>
+        </div>
+        <div class="bar-stat">
+          <span class="bar-label">Schools</span>
+          <div class="bar-track"><div id="bar-schools" class="bar-fill"></div></div>
+          <span id="bar-schools-label" class="bar-value"></span>
+        </div>
+        <div class="bar-stat">
+          <span class="bar-label">Pop. Growth</span>
+          <div class="bar-track"><div id="bar-pop" class="bar-fill"></div></div>
+          <span id="bar-pop-label" class="bar-value"></span>
+        </div>
+        <div class="bar-stat">
+          <span class="bar-label">Rent Growth</span>
+          <div class="bar-track"><div id="bar-rent" class="bar-fill"></div></div>
+          <span id="bar-rent-label" class="bar-value"></span>
+        </div>
+      </section>
+
+      <!-- Risks & Opportunities -->
+      <section id="risks-section" class="card hidden">
+        <div class="two-col-inner">
+          <div>
+            <h3>Risks</h3>
+            <ul id="risks-list" class="insight-list risks"></ul>
+          </div>
+          <div>
+            <h3>Opportunities</h3>
+            <ul id="opps-list" class="insight-list opportunities"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Assumptions -->
+      <section class="card collapsible">
+        <h3 class="collapsible-header" onclick="toggleAssumptions()">
+          Customize Assumptions <span id="collapse-icon">&#9660;</span>
+        </h3>
+        <div id="assumptions-body" class="collapsible-body hidden">
+          <div class="assumption-row">
+            <label>Down Payment</label>
+            <input type="number" id="input-down" value="25" min="0" max="100" step="1"> %
+          </div>
+          <div class="assumption-row">
+            <label>Interest Rate</label>
+            <input type="number" id="input-rate" value="7.0" min="0" max="20" step="0.1"> %
+          </div>
+          <div class="assumption-row">
+            <label>Vacancy Rate</label>
+            <input type="number" id="input-vacancy" value="8" min="0" max="50" step="1"> %
+          </div>
+          <div class="assumption-row">
+            <label>Management Fee</label>
+            <input type="number" id="input-mgmt" value="10" min="0" max="30" step="1"> %
+          </div>
+          <button id="btn-recalculate" class="btn-recalc" onclick="recalculate()">
+            Recalculate
+          </button>
+        </div>
+      </section>
+
+      <!-- Fallback Notice -->
+      <div id="fallback-notice" class="fallback-notice hidden">
+        Showing offline estimates. Connect to backend for full AI analysis.
+      </div>
+    </div>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>
