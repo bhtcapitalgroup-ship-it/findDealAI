@@ -5,7 +5,7 @@
  * Manages caching and rate limiting.
  */
 
-const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE = "https://realdeal-ai-api.fly.dev/api/v1";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_CACHE_ENTRIES = 500;
 

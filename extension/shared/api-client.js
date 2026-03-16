@@ -5,7 +5,7 @@
  * timeout, and retry logic.
  */
 
-const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE = "https://realdeal-ai-api.fly.dev/api/v1";
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 2;
 
