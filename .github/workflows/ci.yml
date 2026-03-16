@@ -214,14 +214,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: false
-          tags: realdeal-ai/frontend:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Frontend Docker build disabled — frontend is WIP
+      # - name: Build frontend image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: ./frontend
+      #     push: false
+      #     tags: realdeal-ai/frontend:${{ github.sha }}
+      #     cache-from: type=gha
+      #     cache-to: type=gha,mode=max
 
   # -------------------------------------------------------------------
   # Security: bandit + npm audit
