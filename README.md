@@ -1,36 +1,21 @@
 # RealDeal AI
 
-**AI-powered real estate deal finder for U.S. investors.**
+**AI-powered property management platform for small landlords (5–50 units).**
 
-Find undervalued properties, analyze investment potential, and close smarter deals -- all from one platform.
+Automate 80% of your landlord work — tenant communication, maintenance coordination, rent collection, and financial tracking — all powered by AI.
 
 ---
 
 ## What It Does
 
-RealDeal AI scans listings across major platforms and surfaces the best investment opportunities using AI-driven analysis.
+RealDeal AI replaces the need for a property manager by automating daily operations with AI agents.
 
-- **Instant Deal Scoring** -- Every property gets a 0-100 investment score combining cap rate, cash flow, BRRRR potential, and neighborhood fundamentals.
-- **BRRRR & Cash Flow Modeling** -- Full buy-rehab-rent-refinance-repeat analysis with customizable assumptions.
-- **Market Heatmaps** -- Visualize cap rates, price growth, and population trends across 100+ U.S. metros.
-- **Chrome Extension** -- Analyze any Zillow, Redfin, or Realtor.com listing in one click without leaving the page.
-- **Smart Alerts** -- Get notified the moment a deal matching your criteria hits the market.
-- **Deal Comparison** -- Side-by-side financials for up to 10 properties with custom overrides.
-- **Property Management** -- Track tenants, leases, maintenance, and rent collection for properties you own.
-
----
-
-## Screenshots
-
-> _Screenshots will be added after the UI is finalized._
-
-| Dashboard | Deal Browser |
-|-----------|-------------|
-| _coming soon_ | _coming soon_ |
-
-| Market Heatmap | Deal Detail |
-|---------------|-------------|
-| _coming soon_ | _coming soon_ |
+- **AI Tenant Communication** — Tenants text or chat with an AI that handles maintenance requests, payment questions, and lease inquiries 24/7. Escalates to you when needed.
+- **Smart Maintenance** — AI diagnoses issues from photos (leak, mold, HVAC), assigns urgency, matches contractors, gets quotes, and schedules repairs.
+- **Rent Collection** — Automated reminders, Stripe/ACH/Zelle payments, late fee tracking, and aging reports.
+- **Financial Dashboard** — Portfolio-level view of income, expenses, NOI, cash flow, and cap rate across all properties.
+- **AI Lease Analyzer** — Upload a lease PDF and get an instant breakdown of key terms, risks, and missing clauses.
+- **Document Management** — Store and organize leases, inspections, contracts, and receipts with auto-tagging.
 
 ---
 
@@ -38,18 +23,16 @@ RealDeal AI scans listings across major platforms and surfaces the best investme
 
 | Layer | Technology |
 |-------|-----------|
-| **Backend API** | Python 3.12, FastAPI, Pydantic v2 |
+| **Backend** | Python 3.12, FastAPI, Pydantic v2 |
 | **Database** | PostgreSQL 16 (async via asyncpg + SQLAlchemy 2.0) |
-| **Migrations** | Alembic |
 | **Task Queue** | Celery + Redis |
-| **AI/LLM** | Anthropic Claude, OpenAI GPT-4o |
-| **Frontend** | Next.js / React, TypeScript, Tailwind CSS |
-| **Maps** | Mapbox GL |
-| **Chrome Extension** | Manifest V3, vanilla JS |
-| **Payments** | Stripe (subscriptions), Plaid (ACH) |
-| **Auth** | JWT (HS256) with bcrypt password hashing |
-| **Infrastructure** | Docker Compose, Nginx, GitHub Actions CI/CD |
-| **Monitoring** | Sentry (error tracking) |
+| **AI** | Anthropic Claude (Haiku for classification, Sonnet for chat + vision, Opus for lease analysis) |
+| **Frontend** | React 19, TypeScript, Tailwind CSS v4, Recharts |
+| **Payments** | Stripe (cards), Plaid (ACH), Zelle (manual) |
+| **SMS** | Twilio |
+| **Storage** | AWS S3 |
+| **Auth** | JWT (HS256) + bcrypt |
+| **Infrastructure** | Docker Compose, PostgreSQL, Redis |
 
 ---
 
@@ -59,98 +42,63 @@ RealDeal AI scans listings across major platforms and surfaces the best investme
 
 - Python 3.12+
 - Node.js 20+
-- Docker & Docker Compose
-- PostgreSQL 16 (or use Docker)
-- Redis 7 (or use Docker)
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-org/realdeal-ai.git
-cd realdeal-ai
+git clone https://github.com/bhtcapitalgroup-ship-it/-RealDealAI.git
+cd -RealDealAI
 ```
 
 ### 2. Set up environment variables
 
 ```bash
-cp infra/.env.example .env
-# Edit .env and fill in your API keys (OpenAI, Stripe, Mapbox, etc.)
+cp .env.example .env
+# Edit .env and add your Anthropic API key (required for AI features)
 ```
 
-### 3. Install dependencies
+### 3. Start the frontend
 
 ```bash
-make setup
+cd frontend
+npm install
+npm run dev
 ```
-
-### 4. Start the stack
-
-**Option A: Docker (recommended)**
-
-```bash
-make dev
-```
-
-This starts PostgreSQL, Redis, the FastAPI backend, Celery worker, and the frontend.
-
-**Option B: Manual**
-
-```bash
-# Terminal 1 — Backend
-make backend
-
-# Terminal 2 — Frontend
-make frontend
-
-# Terminal 3 — Celery worker
-make worker
-
-# Terminal 4 — Celery beat (scheduled tasks)
-make beat
-```
-
-### 5. Seed demo data
-
-```bash
-make seed
-```
-
-This creates demo accounts, 50 properties across 10 cities, market data, saved deals, and alerts.
-
-Demo accounts (password: `demo1234`):
-
-| Email | Plan |
-|-------|------|
-| `demo@realdeal.ai` | Starter (free) |
-| `pro@realdeal.ai` | Growth |
-| `proplus@realdeal.ai` | Pro |
-
-### 6. Open the app
 
 Visit [http://localhost:3000](http://localhost:3000)
 
-API docs: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger) or [http://localhost:8000/redoc](http://localhost:8000/redoc) (ReDoc)
+### 4. Start the backend (optional — frontend works standalone with demo data)
 
----
+```bash
+cd backend
+pip install -r requirements.txt
 
-## Architecture
+# Seed demo data
+python seed_demo.py
 
-RealDeal AI follows a modular monolith architecture with clear separation between the API layer, business logic services, AI modules, and background task processing.
-
-```
-Browser / Extension
-       |
-   Nginx (reverse proxy)
-       |
-   ┌───┴───┐
-   │FastAPI │──── Celery Workers ──── Redis (broker)
-   │  API   │          |
-   └───┬───┘     Scrapers / AI
-       |
-   PostgreSQL
+# Start API server
+DATABASE_URL="sqlite+aiosqlite:///./realdeal_dev.db" JWT_SECRET="dev-secret" uvicorn app.main:app --port 8000
 ```
 
-For a full architecture deep-dive, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### 5. Start with Docker (full stack)
+
+```bash
+cp .env.example .env
+docker compose up
+```
+
+This starts PostgreSQL, Redis, the FastAPI backend, Celery workers, and the React frontend.
+
+### Demo Login
+
+```
+Email:    jordan@mitchell.com
+Password: demo123
+```
+
+Or use any email/password — the frontend runs in demo mode with mock data.
 
 ---
 
@@ -160,92 +108,111 @@ For a full architecture deep-dive, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTUR
 realdeal-ai/
 ├── backend/
 │   ├── app/
-│   │   ├── ai/                 # AI modules (deal analyzer, market analyzer, etc.)
-│   │   ├── api/v1/             # FastAPI route handlers
-│   │   ├── core/               # Config, database, security
-│   │   ├── models/             # SQLAlchemy ORM models
+│   │   ├── ai/                 # AI modules (tenant bot, vision, lease analyzer)
+│   │   ├── api/v1/             # 50 REST endpoints
+│   │   ├── core/               # Config, database, security, auth
+│   │   ├── models/             # 14 SQLAlchemy models
 │   │   ├── schemas/            # Pydantic request/response schemas
-│   │   ├── scrapers/           # Zillow, Redfin, Realtor scrapers
-│   │   ├── services/           # Business logic (verdict, neighborhood, cache)
-│   │   ├── tasks/              # Celery background tasks
-│   │   ├── utils/              # Shared utilities (geo, etc.)
-│   │   ├── main.py             # FastAPI app entry point
+│   │   ├── services/           # Payment, maintenance, document services
+│   │   ├── tasks/              # Celery workers (reminders, contractor outreach)
+│   │   ├── main.py             # FastAPI entry point
 │   │   └── worker.py           # Celery worker entry point
-│   ├── migrations/             # Alembic database migrations
-│   ├── scripts/                # Seed data, DB reset, API doc generation
-│   ├── tests/                  # Backend test suite
-│   ├── alembic.ini
+│   ├── seed_demo.py            # Demo data seeder
+│   ├── Dockerfile
 │   └── requirements.txt
-├── frontend/                   # Next.js / React frontend
-├── extension/                  # Chrome extension (Manifest V3)
-├── infra/                      # Dockerfiles, nginx config, env example
-├── docs/                       # Architecture, API, deployment docs
+├── frontend/
+│   ├── src/
+│   │   ├── components/         # Layout, StatCard, Badge, Modal, DataTable
+│   │   ├── pages/              # 12 pages (Dashboard, Properties, Tenants, etc.)
+│   │   ├── lib/                # API client, auth context, utilities
+│   │   ├── App.tsx             # Route definitions
+│   │   └── main.tsx            # Entry point
+│   ├── Dockerfile
+│   └── package.json
+├── docs/                       # Product spec, architecture, roadmap, pricing
 ├── docker-compose.yml
-├── Makefile                    # Development commands (make help)
+├── .env.example
 └── README.md
 ```
 
 ---
 
-## API Documentation
+## Core Modules
 
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-- **OpenAPI JSON**: Generate with `make docs` (writes to `docs/openapi.json`)
+### 1. Tenant Communication AI
 
-For endpoint details and usage examples, see [`docs/API.md`](docs/API.md).
+Tenants text or chat → AI classifies intent (maintenance / payment / lease) → responds automatically → escalates if confidence < 70% or legal keywords detected.
 
----
+- **Claude Haiku** for intent classification (~$0.003/message)
+- **Claude Sonnet** for response generation
+- Fair Housing guard rails built in
 
-## Running Tests
+### 2. Maintenance Automation
 
-```bash
-# All tests
-make test
-
-# Backend only (with coverage report)
-make test-backend
-
-# Frontend only
-make test-frontend
+```
+Tenant reports issue → AI categorizes + assigns urgency → Matches contractor
+→ Sends RFQ → Landlord approves quote → Contractor scheduled → Tenant notified
 ```
 
-Backend tests use pytest with async support. Coverage reports are generated in `backend/htmlcov/`.
+### 3. Vision Diagnostics
+
+Tenant uploads a photo → Claude Sonnet Vision detects:
+- Water damage, mold, structural cracks, HVAC issues, pest evidence
+- Assigns severity (1-5), urgency, estimated cost range
+- Auto-creates maintenance ticket
+
+### 4. Financial Dashboard
+
+Real-time portfolio view:
+- Income vs expenses by property and category
+- NOI, cash flow, cap rate, equity tracking
+- P&L table, expense breakdown, collection rate
+- Tax-ready CSV export
+
+### 5. Lease Analyzer
+
+Upload lease PDF → Claude Opus extracts:
+- All key terms (rent, deposit, fees, dates, policies)
+- Risk flags (unusual clauses, missing protections)
+- Risk score 0-100
 
 ---
 
-## Deployment
+## API Endpoints (50 total)
 
-The project ships with Docker Compose for local development and is designed for container-based deployment.
-
-```bash
-# Build production images
-make build
-
-# Deploy to staging
-make deploy-staging
-```
-
-CI/CD is handled via GitHub Actions. See `.github/workflows/` for pipeline definitions and `docs/DEPLOYMENT.md` for full deployment instructions.
-
----
-
-## Contributing
-
-1. **Branch naming**: `feature/description`, `fix/description`, `chore/description`
-2. **Commits**: Use conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`)
-3. **Pull requests**: Fill out the PR template. All PRs require at least one review.
-4. **Code style**:
-   - Backend: Ruff for linting/formatting, mypy for type checking
-   - Frontend: ESLint + Prettier
-   - Run `make lint` before pushing
-5. **Tests**: All new features must include tests. Maintain >80% backend coverage.
+| Group | Endpoints | Description |
+|-------|-----------|-------------|
+| Auth | 2 | Register, login (JWT) |
+| Properties | 6 | CRUD + financials |
+| Units | 4 | CRUD per property |
+| Tenants | 5 | CRUD + payment history |
+| Leases | 4 | CRUD with auto unit status |
+| Payments | 5 | CRUD + summary + aging report |
+| Maintenance | 7 | CRUD + AI diagnose + approve + complete |
+| Contractors | 4 | CRUD with soft delete |
+| Documents | 5 | Upload + analyze |
+| AI Chat | 4 | Chat + conversations + escalations |
+| Financials | 4 | Dashboard + income + expenses |
+| Webhooks | 2 | Twilio SMS + Stripe |
 
 ---
 
-## Team
+## Database Schema
 
-> _Team section -- add founders and contributors here._
+14 tables: `users`, `properties`, `units`, `tenants`, `leases`, `payments`, `maintenance_requests`, `maintenance_photos`, `contractors`, `quotes`, `conversations`, `messages`, `documents`, `expenses`, `notifications`
+
+All tables use UUID primary keys, TIMESTAMPTZ timestamps, and are scoped by `landlord_id` for multi-tenancy.
+
+---
+
+## Pricing Model
+
+| Tier | Price | Units | Features |
+|------|-------|-------|----------|
+| Starter | Free | ≤ 5 | Rent collection, basic dashboard, document storage |
+| Growth | $2/unit/mo | 6–25 | + AI chat, auto reminders, maintenance AI |
+| Pro | $4/unit/mo | 26–100 | + Vision diagnostics, lease analyzer, financial reports |
+| Enterprise | Custom | 100+ | + API access, white-label, dedicated support |
 
 ---
 

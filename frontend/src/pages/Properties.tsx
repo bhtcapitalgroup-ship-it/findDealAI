@@ -308,7 +308,7 @@ function AddPropertyModal({ open, onClose }: { open: boolean; onClose: () => voi
   }
   function updateUnit(i: number, field: keyof FormUnit, value: string | number) {
     const updated = [...formUnits];
-    (updated[i] as Record<string, unknown>)[field] = value;
+    (updated[i] as unknown as Record<string, unknown>)[field] = value;
     setFormUnits(updated);
   }
 
