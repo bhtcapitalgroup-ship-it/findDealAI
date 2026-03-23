@@ -3,13 +3,18 @@ RealDeal AI - Core Deal Analysis Engine
 
 Provides comprehensive real estate investment analysis including ARV estimation,
 rehab cost projection, cash flow modeling, and AI-powered deal summaries.
+
+Two AI modes:
+  Mode 1 (default): Pure math + template-based summaries (NO paid API needed)
+  Mode 2 (optional): Local Ollama (Llama 3) for richer summaries if OLLAMA_URL is set
 """
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-import anthropic
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +137,19 @@ class DealAnalyzer:
 
     Provides ARV estimation, rehab cost projection, rental analysis, cash flow
     modelling, BRRRR scoring, and an overall investment score (0-100).
+
+    AI Summary modes:
+      - Default: Template-based summary using calculated metrics (FREE, no API)
+      - Optional: Ollama local LLM for richer summaries (set OLLAMA_URL env var)
     """
 
-    def __init__(self, anthropic_api_key: Optional[str] = None):
-        self._anthropic_key = anthropic_api_key
+    def __init__(
+        self,
+        ollama_url: Optional[str] = None,
+        ollama_model: Optional[str] = None,
+    ):
+        self._ollama_url = ollama_url or os.getenv("OLLAMA_URL", "")
+        self._ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3")
 
     # ------------------------------------------------------------------
     # ARV (After-Repair Value)
@@ -316,20 +330,15 @@ class DealAnalyzer:
         )
 
         # Adjustments
-        # School rating adjustment: +/- up to 8 %
         school_adj = (market_data.school_rating - 5) / 5 * 0.08
-        # Crime adjustment: lower crime => higher rent tolerance
         crime_adj = (50 - market_data.crime_index) / 50 * 0.05
-        # Garage adds ~$50-100
         garage_adj = 75 if property.garage else 0
-        # Year built freshness
         age = max(0, 2026 - property.year_built)
         age_adj = max(-0.05, min(0.05, (20 - age) / 20 * 0.05))
 
         blended *= 1 + school_adj + crime_adj + age_adj
         blended += garage_adj
 
-        # Multi-unit: rent is per-unit already, multiply out then return per-unit
         estimated = round(max(blended, 400), 2)  # floor at $400
 
         logger.info("Estimated rent for %s: $%,.0f/mo", property.address, estimated)
@@ -453,7 +462,6 @@ class DealAnalyzer:
             - self._annual_insurance(property)
             - property.hoa_monthly * 12
         )
-        # debt service is P&I only for DSCR
         if annual_debt_service <= 0:
             return 0.0
 
@@ -469,18 +477,11 @@ class DealAnalyzer:
         """
         Score 0-100 evaluating a property for the BRRRR strategy
         (Buy, Rehab, Rent, Refinance, Repeat).
-
-        Components:
-        - Equity capture potential (ARV vs purchase + rehab)  40 pts
-        - Rent coverage (DSCR after refi)                     30 pts
-        - Refinance potential (LTV headroom)                   20 pts
-        - Market liquidity (days on market signal)             10 pts
         """
         rehab_low, rehab_high = self.estimate_rehab_cost(property)
         avg_rehab = (rehab_low + rehab_high) / 2
         all_in = property.price + avg_rehab
 
-        # Rough ARV proxy when no comps: price / condition discount
         cond_discounts = {
             "excellent": 1.0,
             "good": 1.05,
@@ -490,20 +491,16 @@ class DealAnalyzer:
         }
         arv_est = property.price * cond_discounts.get(property.condition, 1.15)
 
-        # Equity capture: target > 25 % equity after rehab
         equity_pct = (arv_est - all_in) / max(arv_est, 1)
         equity_score = min(40, max(0, equity_pct / 0.30 * 40))
 
-        # Rent coverage via DSCR at 75 % LTV refi
         dscr = self.calculate_dscr(property)
         rent_score = min(30, max(0, (dscr - 0.8) / 0.7 * 30))
 
-        # Refinance: can you pull all cash out at 75 % LTV?
         refi_amount = arv_est * 0.75
         cash_recoup_pct = refi_amount / max(all_in, 1)
         refi_score = min(20, max(0, cash_recoup_pct / 1.0 * 20))
 
-        # Liquidity
         dom = property.days_on_market if property.days_on_market > 0 else 30
         liquidity_score = min(10, max(0, (90 - dom) / 90 * 10))
 
@@ -535,7 +532,6 @@ class DealAnalyzer:
         """
         scores: dict[str, float] = {}
 
-        # 1. Price vs ARV (25 %)  -- use condition-based ARV proxy
         cond_discounts = {
             "excellent": 1.0,
             "good": 1.05,
@@ -545,39 +541,24 @@ class DealAnalyzer:
         }
         arv_proxy = property.price * cond_discounts.get(property.condition, 1.15)
         price_to_arv = property.price / max(arv_proxy, 1)
-        # Best deal = buying at 70 % of ARV ("70 % rule")
         scores["price_arv"] = max(0, min(1, (1.0 - price_to_arv) / 0.30)) * 25
 
-        # 2. Rent potential / cash flow (20 %)
         if property.estimated_rent > 0 and property.price > 0:
-            rent_ratio = (property.estimated_rent * 12) / property.price  # gross yield
-            # 1 % rule -> 12 % annual = excellent
+            rent_ratio = (property.estimated_rent * 12) / property.price
             scores["rent_cf"] = max(0, min(1, rent_ratio / 0.12)) * 20
         else:
             scores["rent_cf"] = 0
 
-        # 3. Crime level (10 %) -- lower = better
         scores["crime"] = max(0, min(1, (100 - market_data.crime_index) / 100)) * 10
-
-        # 4. Population growth (10 %)
-        # 2 %+ growth is excellent
         scores["pop_growth"] = (
             max(0, min(1, market_data.population_growth_pct / 2.0)) * 10
         )
-
-        # 5. School ratings (10 %)
         scores["schools"] = max(0, min(1, market_data.school_rating / 10)) * 10
-
-        # 6. Job growth (10 %)
-        # 3 %+ is excellent
         scores["job_growth"] = max(0, min(1, market_data.job_growth_pct / 3.0)) * 10
 
-        # 7. Market trend (10 %)
-        # 5 %+ YoY price appreciation is excellent
         trend = market_data.price_trend_yoy_pct
         scores["market_trend"] = max(0, min(1, trend / 5.0)) * 10
 
-        # 8. Property condition proxy (5 %)
         cond_scores = {
             "excellent": 1.0,
             "good": 0.8,
@@ -599,42 +580,335 @@ class DealAnalyzer:
         return result
 
     # ------------------------------------------------------------------
-    # AI Summary via Claude
+    # AI Summary -- Template-based (default) or Ollama (optional)
     # ------------------------------------------------------------------
 
-    def generate_ai_summary(
+    async def generate_ai_summary(
         self,
         property: PropertyData,
         analysis: dict[str, Any],
     ) -> str:
         """
-        Generate a natural-language deal summary using Claude.
+        Generate a natural-language deal summary.
 
-        Returns a structured summary with pros, cons, and recommendation.
-        Falls back to a template-based summary if the API call fails.
+        Mode 1 (default): Template-based summary using calculated metrics.
+                          No external API needed -- completely free.
+        Mode 2 (optional): If OLLAMA_URL is set, use local Ollama for richer text.
+                          Falls back to Mode 1 if Ollama is unavailable.
         """
-        prompt = self._build_summary_prompt(property, analysis)
+        # Try Ollama first if configured
+        if self._ollama_url:
+            try:
+                return await self._generate_ollama_summary(property, analysis)
+            except Exception as exc:
+                logger.warning(
+                    "Ollama unavailable (%s), falling back to template summary", exc
+                )
 
-        try:
-            client = anthropic.Anthropic(api_key=self._anthropic_key)
-            message = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1024,
-                messages=[{"role": "user", "content": prompt}],
+        # Default: template-based summary (always works, always free)
+        return self._generate_template_summary(property, analysis)
+
+    # ------------------------------------------------------------------
+    # Mode 1: Template-based summary (FREE, no API)
+    # ------------------------------------------------------------------
+
+    def _generate_template_summary(
+        self, prop: PropertyData, analysis: dict[str, Any]
+    ) -> str:
+        """
+        Generate a detailed, template-based deal summary using actual metrics.
+
+        Produces 4-5 specific pros/cons based on real calculated numbers.
+        """
+        score = analysis.get("investment_score", 0)
+        cap_rate = analysis.get("cap_rate", 0)
+        cap_pct = cap_rate * 100 if cap_rate < 1 else cap_rate
+        cash_flow = analysis.get("cash_flow", 0)
+        coc = analysis.get("cash_on_cash", 0)
+        coc_pct = coc * 100 if coc < 1 else coc
+        dscr = analysis.get("dscr", 0)
+        brrrr = analysis.get("brrrr_score", 0)
+        arv = analysis.get("arv", 0)
+        rehab_low = analysis.get("rehab_low", 0)
+        rehab_high = analysis.get("rehab_high", 0)
+
+        # Determine rating
+        if score >= 75:
+            rating = "excellent"
+            recommendation = "Strong Buy"
+            rec_detail = (
+                f"With an investment score of {score}/100, this property shows strong "
+                f"fundamentals across all key metrics. The combination of "
+                f"{'positive cash flow' if cash_flow > 0 else 'manageable expenses'} "
+                f"and solid upside potential makes this a compelling acquisition target."
             )
-            summary = message.content[0].text
-            logger.info("AI summary generated for %s", property.address)
-            return summary
+        elif score >= 60:
+            rating = "good"
+            recommendation = "Buy"
+            rec_detail = (
+                f"Scoring {score}/100, this property offers a solid investment opportunity. "
+                f"While not a home run, the numbers work and the risk-reward profile "
+                f"is favorable for a buy-and-hold strategy."
+            )
+        elif score >= 45:
+            rating = "moderate"
+            recommendation = "Hold / Watch"
+            rec_detail = (
+                f"At {score}/100, this property is borderline. Consider negotiating "
+                f"a lower price to improve returns, or watch for price reductions. "
+                f"The deal could work at 5-10% below asking."
+            )
+        else:
+            rating = "below average"
+            recommendation = "Pass"
+            rec_detail = (
+                f"With a score of {score}/100, the numbers do not support this "
+                f"investment at current pricing. The risk-adjusted returns are "
+                f"insufficient to justify the capital outlay."
+            )
 
-        except Exception as exc:
-            logger.error("Claude API call failed, using template fallback: %s", exc)
-            return self._fallback_summary(property, analysis)
+        # Calculate upside percentage
+        if arv > 0 and prop.price > 0:
+            upside_pct = ((arv - prop.price) / prop.price) * 100
+        else:
+            upside_pct = 0
+
+        # Property type display name
+        type_names = {
+            "single_family": "single-family home",
+            "multi_family": "multi-family property",
+            "condo": "condominium",
+            "townhouse": "townhouse",
+        }
+        prop_type_display = type_names.get(prop.property_type, prop.property_type)
+
+        # Build pros list (4-5 specific items)
+        pros: list[str] = []
+        cons: list[str] = []
+
+        # Cap rate analysis
+        if cap_pct >= 10:
+            pros.append(
+                f"Exceptional cap rate of {cap_pct:.1f}% -- well above the 8% "
+                f"threshold that most investors target"
+            )
+        elif cap_pct >= 8:
+            pros.append(
+                f"Strong cap rate of {cap_pct:.1f}% indicates healthy income "
+                f"relative to purchase price"
+            )
+        elif cap_pct >= 6:
+            pros.append(
+                f"Respectable cap rate of {cap_pct:.1f}% -- acceptable for "
+                f"a market with appreciation potential"
+            )
+        elif cap_pct >= 4:
+            cons.append(
+                f"Cap rate of {cap_pct:.1f}% is below the 6% target; returns "
+                f"depend on appreciation rather than cash flow"
+            )
+        else:
+            cons.append(
+                f"Very low cap rate of {cap_pct:.1f}% suggests this property "
+                f"is overpriced relative to its income potential"
+            )
+
+        # Cash flow analysis
+        if cash_flow >= 400:
+            pros.append(
+                f"Strong monthly cash flow of ${cash_flow:,.0f} provides a "
+                f"comfortable buffer for unexpected expenses"
+            )
+        elif cash_flow >= 200:
+            pros.append(
+                f"Positive monthly cash flow of ${cash_flow:,.0f} after all "
+                f"expenses including vacancy and capex reserves"
+            )
+        elif cash_flow >= 0:
+            cons.append(
+                f"Marginal cash flow of ${cash_flow:,.0f}/mo leaves little room "
+                f"for unexpected repairs or extended vacancies"
+            )
+        else:
+            cons.append(
+                f"Negative cash flow of ${cash_flow:,.0f}/mo means this property "
+                f"will require monthly out-of-pocket contributions"
+            )
+
+        # Cash-on-cash return
+        if coc_pct >= 12:
+            pros.append(
+                f"Excellent {coc_pct:.1f}% cash-on-cash return significantly "
+                f"outperforms stock market historical averages"
+            )
+        elif coc_pct >= 8:
+            pros.append(
+                f"Solid {coc_pct:.1f}% cash-on-cash return on invested capital"
+            )
+        elif coc_pct >= 4:
+            cons.append(
+                f"Cash-on-cash return of {coc_pct:.1f}% is modest -- consider "
+                f"whether your capital could earn more elsewhere"
+            )
+        else:
+            cons.append(
+                f"Low cash-on-cash return of {coc_pct:.1f}% does not adequately "
+                f"compensate for the illiquidity and effort of real estate"
+            )
+
+        # DSCR analysis
+        if dscr >= 1.5:
+            pros.append(
+                f"DSCR of {dscr:.2f} provides excellent debt coverage -- lenders "
+                f"will look favorably on this property"
+            )
+        elif dscr >= 1.25:
+            pros.append(
+                f"Healthy DSCR of {dscr:.2f} meets most lender requirements "
+                f"for investment property financing"
+            )
+        elif dscr >= 1.0:
+            cons.append(
+                f"DSCR of {dscr:.2f} is tight -- any rent reduction or "
+                f"unexpected expense could push debt coverage below 1.0"
+            )
+        elif dscr > 0:
+            cons.append(
+                f"DSCR of {dscr:.2f} is below 1.0, meaning rental income "
+                f"does not fully cover debt service"
+            )
+
+        # Condition-based pros/cons
+        if prop.condition in ("excellent", "good"):
+            pros.append(
+                f"Property is in {prop.condition} condition, minimizing immediate "
+                f"rehab costs and reducing time-to-rent"
+            )
+        elif prop.condition == "fair":
+            cons.append(
+                f"Fair condition means estimated rehab of ${rehab_low:,.0f}-"
+                f"${rehab_high:,.0f} before the property reaches full value"
+            )
+        elif prop.condition in ("poor", "distressed"):
+            cons.append(
+                f"Property in {prop.condition} condition requires significant "
+                f"rehab investment of ${rehab_low:,.0f}-${rehab_high:,.0f}"
+            )
+
+        # ARV upside
+        if upside_pct >= 20:
+            pros.append(
+                f"Estimated {upside_pct:.0f}% upside to ARV of ${arv:,.0f} "
+                f"creates substantial forced equity opportunity"
+            )
+        elif upside_pct >= 10:
+            pros.append(
+                f"Moderate {upside_pct:.0f}% upside to estimated ARV of ${arv:,.0f}"
+            )
+
+        # BRRRR potential
+        if brrrr >= 70:
+            pros.append(
+                f"BRRRR score of {brrrr:.0f}/100 makes this an excellent "
+                f"candidate for the Buy-Rehab-Rent-Refinance-Repeat strategy"
+            )
+        elif brrrr < 40:
+            cons.append(
+                f"BRRRR score of {brrrr:.0f}/100 suggests limited potential "
+                f"for the refinance-and-repeat strategy"
+            )
+
+        # Days on market signal
+        if prop.days_on_market > 90:
+            pros.append(
+                f"Listed for {prop.days_on_market} days -- extended time on "
+                f"market suggests seller motivation and negotiation leverage"
+            )
+        elif prop.days_on_market > 0 and prop.days_on_market < 7:
+            cons.append(
+                f"Only {prop.days_on_market} days on market -- limited time "
+                f"for due diligence in a competitive situation"
+            )
+
+        # Ensure we have at least 2 of each
+        if len(pros) < 2:
+            pros.append("Potential upside if local market conditions improve")
+        if len(cons) < 2:
+            cons.append("No additional significant red flags identified at this time")
+
+        # Cap at 5 each for readability
+        pros = pros[:5]
+        cons = cons[:5]
+
+        pros_str = "\n".join(f"- {p}" for p in pros)
+        cons_str = "\n".join(f"- {c}" for c in cons)
+
+        return f"""## Deal Summary
+This {prop_type_display} at {prop.address}, {prop.city}, {prop.state} {prop.zip_code} \
+is listed at ${prop.price:,.0f} ({prop.bedrooms}bd/{prop.bathrooms}ba, {prop.sqft:,} sqft, \
+built {prop.year_built}). \
+{"The estimated ARV of $" + f"{arv:,.0f}" + f" represents {upside_pct:.0f}% upside from the current asking price. " if arv > 0 else ""}\
+Monthly cash flow of ${cash_flow:,.0f} with a {cap_pct:.1f}% cap rate makes this \
+a {rating} investment opportunity.
+
+## Pros
+{pros_str}
+
+## Cons
+{cons_str}
+
+## Key Metrics
+| Metric | Value | Rating |
+|--------|-------|--------|
+| Investment Score | {score}/100 | {"Good" if score >= 60 else "Fair" if score >= 45 else "Low"} |
+| Cap Rate | {cap_pct:.1f}% | {"Good" if cap_pct >= 6 else "Low"} |
+| Cash Flow | ${cash_flow:,.0f}/mo | {"Good" if cash_flow >= 200 else "Low"} |
+| Cash-on-Cash | {coc_pct:.1f}% | {"Good" if coc_pct >= 8 else "Low"} |
+| DSCR | {dscr:.2f} | {"Good" if dscr >= 1.25 else "Low"} |
+| BRRRR Score | {brrrr:.0f}/100 | {"Good" if brrrr >= 60 else "Low"} |
+
+## Recommendation
+**{recommendation}** -- {rec_detail}
+"""
 
     # ------------------------------------------------------------------
-    # Private helpers
+    # Mode 2: Ollama local LLM (optional, free)
     # ------------------------------------------------------------------
 
-    def _build_summary_prompt(self, prop: PropertyData, analysis: dict) -> str:
+    async def _generate_ollama_summary(
+        self, prop: PropertyData, analysis: dict[str, Any]
+    ) -> str:
+        """Generate a summary using local Ollama instance (Llama 3)."""
+        prompt = self._build_ollama_prompt(prop, analysis)
+
+        url = f"{self._ollama_url.rstrip('/')}/api/generate"
+        payload = {
+            "model": self._ollama_model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 1024,
+            },
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"Ollama returned status {resp.status}")
+                data = await resp.json()
+                summary = data.get("response", "")
+                if not summary.strip():
+                    raise RuntimeError("Ollama returned empty response")
+                logger.info("Ollama summary generated for %s", prop.address)
+                return summary
+
+    def _build_ollama_prompt(self, prop: PropertyData, analysis: dict) -> str:
+        cap_rate = analysis.get("cap_rate", 0)
+        cap_pct = cap_rate * 100 if cap_rate < 1 else cap_rate
+        coc = analysis.get("cash_on_cash", 0)
+        coc_pct = coc * 100 if coc < 1 else coc
+
         return f"""You are an expert real estate investment analyst. Analyze this deal and provide a concise summary.
 
 Property: {prop.address}, {prop.city}, {prop.state} {prop.zip_code}
@@ -647,9 +921,9 @@ Estimated Rent: ${prop.estimated_rent:,.0f}/mo
 
 Analysis Results:
 - Investment Score: {analysis.get("investment_score", "N/A")}/100
-- Cap Rate: {analysis.get("cap_rate", 0) * 100:.1f}%
+- Cap Rate: {cap_pct:.1f}%
 - Monthly Cash Flow: ${analysis.get("cash_flow", 0):,.0f}
-- Cash-on-Cash Return: {analysis.get("cash_on_cash", 0) * 100:.1f}%
+- Cash-on-Cash Return: {coc_pct:.1f}%
 - DSCR: {analysis.get("dscr", 0):.2f}
 - BRRRR Score: {analysis.get("brrrr_score", 0):.0f}/100
 - Estimated Rehab: ${analysis.get("rehab_low", 0):,.0f} - ${analysis.get("rehab_high", 0):,.0f}
@@ -670,65 +944,4 @@ Provide your analysis in this exact format:
 
 ## Recommendation
 [Buy / Hold for watching / Pass] - [1-2 sentence justification]
-"""
-
-    def _fallback_summary(self, prop: PropertyData, analysis: dict) -> str:
-        score = analysis.get("investment_score", 0)
-        cf = analysis.get("cash_flow", 0)
-        cap = analysis.get("cap_rate", 0) * 100
-        coc = analysis.get("cash_on_cash", 0) * 100
-
-        if score >= 75:
-            rec = "Strong Buy"
-        elif score >= 60:
-            rec = "Buy"
-        elif score >= 45:
-            rec = "Hold for watching"
-        else:
-            rec = "Pass"
-
-        pros = []
-        cons = []
-
-        if cap >= 8:
-            pros.append(f"Strong cap rate of {cap:.1f}%")
-        elif cap < 5:
-            cons.append(f"Low cap rate of {cap:.1f}%")
-
-        if cf > 200:
-            pros.append(f"Positive monthly cash flow of ${cf:,.0f}")
-        elif cf < 0:
-            cons.append(f"Negative cash flow of ${cf:,.0f}/mo")
-
-        if coc > 10:
-            pros.append(f"Excellent cash-on-cash return of {coc:.1f}%")
-        elif coc < 5:
-            cons.append(f"Low cash-on-cash return of {coc:.1f}%")
-
-        if prop.condition in ("poor", "distressed"):
-            cons.append("Property needs significant rehab")
-        if prop.condition in ("excellent", "good"):
-            pros.append("Property is in good condition, minimal rehab needed")
-
-        if not pros:
-            pros.append("Potential upside if market improves")
-        if not cons:
-            cons.append("No significant red flags identified")
-
-        pros_str = "\n".join(f"- {p}" for p in pros)
-        cons_str = "\n".join(f"- {c}" for c in cons)
-
-        return f"""## Deal Summary
-{prop.address}, {prop.city}, {prop.state} - Listed at ${prop.price:,.0f}. \
-{prop.bedrooms}bd/{prop.bathrooms}ba, {prop.sqft:,} sqft built in {prop.year_built}. \
-Investment score: {score}/100.
-
-## Pros
-{pros_str}
-
-## Cons
-{cons_str}
-
-## Recommendation
-{rec} - Score of {score}/100 with {cap:.1f}% cap rate and ${cf:,.0f}/mo cash flow.
 """
