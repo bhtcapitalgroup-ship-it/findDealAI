@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Search } from 'lucide-react';
-import api from '../lib/api';
+import { tenantsApi } from '../lib/api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import DataTable, { type Column } from '../components/DataTable';
@@ -47,7 +47,24 @@ export default function Tenants() {
 
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
-    queryFn: async () => { const res = await api.get('/tenants'); return res.data; },
+    queryFn: async () => {
+      const data = await tenantsApi.list();
+      if (Array.isArray(data) && data.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (data as any[]).map((t: any): Tenant => ({
+          id: String(t.id),
+          name: `${t.first_name || ''} ${t.last_name || ''}`.trim() || String(t.name || ''),
+          unit: String(t.unit || t.unit_number || ''),
+          property: String(t.property || t.property_name || ''),
+          rent: Number(t.rent || t.monthly_rent || 0),
+          paymentStatus: (String(t.paymentStatus || t.payment_status || 'current') as Tenant['paymentStatus']),
+          phone: String(t.phone || ''),
+          email: String(t.email || ''),
+          leaseEnd: String(t.leaseEnd || t.lease_end || ''),
+        }));
+      }
+      return mockTenants;
+    },
     placeholderData: mockTenants,
   });
 

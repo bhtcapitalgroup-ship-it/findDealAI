@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   CheckCircle2, Clock, AlertTriangle, ChevronLeft, ChevronRight, Plus, Star, X,
 } from 'lucide-react';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
+import { paymentsApi } from '@/lib/api';
 
 type PaymentStatus = 'paid' | 'pending' | 'overdue';
 type PaymentMethod = 'ACH' | 'Stripe' | 'Zelle' | 'Check' | 'Cash' | '';
@@ -22,7 +23,7 @@ interface PaymentRow {
   datePaid: string;
 }
 
-const payments: PaymentRow[] = [
+const mockPayments: PaymentRow[] = [
   { id: 1, tenant: 'James Smith', unit: '1A', property: 'Maple Street', amountDue: 1350, amountPaid: 1350, status: 'paid', method: 'ACH', datePaid: 'Mar 1' },
   { id: 2, tenant: 'Maria Garcia', unit: '1B', property: 'Maple Street', amountDue: 1350, amountPaid: 1350, status: 'paid', method: 'ACH', datePaid: 'Mar 1' },
   { id: 3, tenant: 'David Johnson', unit: '2A', property: 'Maple Street', amountDue: 1650, amountPaid: 1650, status: 'paid', method: 'Stripe', datePaid: 'Mar 2' },
@@ -47,13 +48,13 @@ const payments: PaymentRow[] = [
   { id: 22, tenant: 'Ashley Walker', unit: 'D', property: 'Cedar Heights', amountDue: 2400, amountPaid: 2400, status: 'paid', method: 'ACH', datePaid: 'Mar 1' },
 ];
 
-const totalDue = 38400;
-const totalCollected = 35450;
-const totalPending = 1650;
-const totalOverdue = 1300;
-const collectionPct = 92.3;
+const mockTotalDue = 38400;
+const mockTotalCollected = 35450;
+const mockTotalPending = 1650;
+const mockTotalOverdue = 1300;
+const mockCollectionPct = 92.3;
 
-const propertyStats = [
+const mockPropertyStats = [
   { name: 'Maple Street', paid: 10, total: 11, collected: 18050, due: 19700 },
   { name: 'Oak Park', paid: 6, total: 7, collected: 11400, due: 14300 },
   { name: 'Cedar Heights', paid: 4, total: 4, collected: 8800, due: 8800 },
@@ -80,6 +81,55 @@ export default function Payments() {
   const [paymentMethod, setPaymentMethod] = useState('ACH');
   const [paymentDate, setPaymentDate] = useState('2026-03-16');
   const [paymentNotes, setPaymentNotes] = useState('');
+
+  const [payments, setPayments] = useState<PaymentRow[]>(mockPayments);
+  const [totalDue, setTotalDue] = useState(mockTotalDue);
+  const [totalCollected, setTotalCollected] = useState(mockTotalCollected);
+  const [totalPending, setTotalPending] = useState(mockTotalPending);
+  const [totalOverdue, setTotalOverdue] = useState(mockTotalOverdue);
+  const [collectionPct, setCollectionPct] = useState(mockCollectionPct);
+  const [propertyStats, setPropertyStats] = useState(mockPropertyStats);
+
+  useEffect(() => {
+    // Try fetching payments list
+    paymentsApi.list().then((data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setPayments((data as any[]).map((p: any, i: number): PaymentRow => ({
+          id: Number(p.id || i + 1),
+          tenant: String(p.tenant_name || p.tenant || ''),
+          unit: String(p.unit || p.unit_number || ''),
+          property: String(p.property || p.property_name || ''),
+          amountDue: Number(p.amount_due || p.amountDue || p.amount || 0),
+          amountPaid: Number(p.amount_paid || p.amountPaid || 0),
+          status: (String(p.status || 'pending') as PaymentStatus),
+          method: (String(p.method || p.payment_method || '') as PaymentMethod),
+          datePaid: String(p.date_paid || p.datePaid || p.paid_date || ''),
+        })));
+      }
+    }).catch(() => {});
+
+    // Try fetching payment summary
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    paymentsApi.summary().then((data: any) => {
+      if (data) {
+        if (data.total_due != null) setTotalDue(Number(data.total_due));
+        if (data.total_collected != null) setTotalCollected(Number(data.total_collected));
+        if (data.total_pending != null) setTotalPending(Number(data.total_pending));
+        if (data.total_overdue != null) setTotalOverdue(Number(data.total_overdue));
+        if (data.collection_rate != null) setCollectionPct(Number(data.collection_rate));
+        if (Array.isArray(data.by_property)) {
+          setPropertyStats((data.by_property as any[]).map((ps: any) => ({
+            name: String(ps.name || ''),
+            paid: Number(ps.paid || 0),
+            total: Number(ps.total || 0),
+            collected: Number(ps.collected || 0),
+            due: Number(ps.due || 0),
+          })));
+        }
+      }
+    }).catch(() => {});
+  }, []);
 
   const filtered = filter === 'all' ? payments : payments.filter((p) => p.status === filter);
 

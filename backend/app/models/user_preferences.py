@@ -5,7 +5,7 @@ import uuid
 from typing import Any, List, Optional
 
 from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUID
@@ -36,14 +36,14 @@ class UserPreferences(TimestampMixin, Base):
 
     # Investment strategy
     investment_types: Mapped[Optional[List[str]]] = mapped_column(
-        ARRAY(String(50)),
+        JSON,
         nullable=True,
         comment='e.g. ["rental", "brrrr", "flip", "wholesale"]',
     )
 
     # Target markets as structured JSON list
     target_markets: Mapped[Optional[dict[str, Any]]] = mapped_column(
-        JSONB,
+        JSON,
         nullable=True,
         server_default="[]",
         comment='e.g. [{"city": "Austin", "state": "TX"}, ...]',
@@ -71,7 +71,7 @@ class UserPreferences(TimestampMixin, Base):
 
     # Property types
     property_types: Mapped[Optional[List[str]]] = mapped_column(
-        ARRAY(String(50)),
+        JSON,
         nullable=True,
         comment='e.g. ["single_family", "multi_family"]',
     )

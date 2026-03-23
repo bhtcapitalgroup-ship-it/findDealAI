@@ -24,8 +24,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await authApi.login({ email, password });
       localStorage.setItem('rd_token', response.access_token);
-      localStorage.setItem('rd_user', JSON.stringify(response.user));
-      setUser(response.user);
+      // Backend returns full_name; frontend User type expects first_name/last_name
+      const backendUser = response.user as unknown as Record<string, unknown>;
+      const fullName = (backendUser.full_name as string) || '';
+      const [firstName, ...rest] = fullName.split(' ');
+      const lastName = rest.join(' ');
+      const mappedUser: User = {
+        id: String(backendUser.id),
+        email: String(backendUser.email),
+        first_name: firstName || String(backendUser.first_name || ''),
+        last_name: lastName || String(backendUser.last_name || ''),
+        plan_tier: (backendUser.subscription_tier as User['plan_tier']) || (backendUser.plan_tier as User['plan_tier']) || 'starter',
+        created_at: String(backendUser.created_at || new Date().toISOString()),
+      };
+      localStorage.setItem('rd_user', JSON.stringify(mappedUser));
+      setUser(mappedUser);
     } catch {
       // Demo mode fallback
       const mockUser: User = {

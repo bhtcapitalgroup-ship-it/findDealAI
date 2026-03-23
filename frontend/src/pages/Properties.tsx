@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Building2, MapPin, ArrowRight, TrendingUp, Home, Users,
@@ -8,6 +8,7 @@ import {
 import clsx from 'clsx';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import Badge from '../components/Badge';
+import { propertiesApi } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -655,8 +656,50 @@ function AddPropertyModal({ open, onClose }: { open: boolean; onClose: () => voi
 export default function Properties() {
   const navigate = useNavigate();
   const [showAdd, setShowAdd] = useState(false);
+  const [properties, setProperties] = useState<PropertyData[]>(mockProperties);
 
-  const properties = mockProperties;
+  useEffect(() => {
+    propertiesApi.list().then((data) => {
+      if (Array.isArray(data) && data.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setProperties((data as any[]).map((p: any) => ({
+          id: String(p.id),
+          name: String(p.name || ''),
+          address: String(p.address_line1 || p.address || ''),
+          city: String(p.city || ''),
+          state: String(p.state || ''),
+          zip: String(p.zip_code || p.zip || ''),
+          type: (String(p.property_type || p.type || 'Multi-Family') as PropertyData['type']),
+          purchasePrice: Number(p.purchase_price || p.purchasePrice || 0),
+          currentValue: Number(p.current_value || p.currentValue || 0),
+          monthlyMortgage: Number(p.monthly_mortgage || p.monthlyMortgage || 0),
+          annualTax: Number(p.annual_tax || p.annualTax || 0),
+          annualInsurance: Number(p.annual_insurance || p.annualInsurance || 0),
+          monthlyHOA: Number(p.monthly_hoa || p.monthlyHOA || 0),
+          monthlyManagement: Number(p.monthly_management || p.monthlyManagement || 0),
+          monthlyMaintenance: Number(p.monthly_maintenance || p.monthlyMaintenance || 0),
+          lender: String(p.lender || ''),
+          loanAmount: Number(p.loan_amount || p.loanAmount || 0),
+          interestRate: Number(p.interest_rate || p.interestRate || 0),
+          loanTerm: Number(p.loan_term || p.loanTerm || 30),
+          monthlyEscrow: Number(p.monthly_escrow || p.monthlyEscrow || 0),
+          purchaseDate: String(p.purchase_date || p.purchaseDate || ''),
+          yearBuilt: Number(p.year_built || p.yearBuilt || 0),
+          closingCosts: Number(p.closing_costs || p.closingCosts || 0),
+          rehabCosts: Number(p.rehab_costs || p.rehabCosts || 0),
+          downPayment: Number(p.down_payment || p.downPayment || 0),
+          units: Array.isArray(p.units) ? (p.units as any[]).map((u: any) => ({
+            unitNumber: String(u.unit_number || u.unitNumber || ''),
+            bedrooms: Number(u.bedrooms || 0),
+            bathrooms: Number(u.bathrooms || 0),
+            sqft: Number(u.sqft || u.square_feet || 0),
+            monthlyRent: Number(u.monthly_rent || u.monthlyRent || 0),
+            status: (String(u.status || 'vacant') as 'occupied' | 'vacant'),
+          })) : [],
+        })));
+      }
+    }).catch(() => {}); // silently fall back to mock data
+  }, []);
 
   // Portfolio totals
   const portfolio = useMemo(() => {

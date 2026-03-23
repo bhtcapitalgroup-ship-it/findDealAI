@@ -46,37 +46,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import and include routers — catch import errors for optional modules
-from app.api.v1.auth import router as auth_router
-from app.api.v1.properties import router as properties_router
-from app.api.v1.units import router as units_router
-from app.api.v1.tenants import router as tenants_router
-from app.api.v1.leases import router as leases_router
-from app.api.v1.payments import router as payments_router
-from app.api.v1.maintenance import router as maintenance_router
-from app.api.v1.contractors import router as contractors_router
-from app.api.v1.documents import router as documents_router
-from app.api.v1.chat import router as chat_router
-from app.api.v1.financials import router as financials_router
-from app.api.v1.webhooks import router as webhooks_router
-from app.api.v1.extension import router as extension_router
-
-for r in [
-    auth_router,
-    properties_router,
-    units_router,
-    tenants_router,
-    leases_router,
-    payments_router,
-    maintenance_router,
-    contractors_router,
-    documents_router,
-    chat_router,
-    financials_router,
-    webhooks_router,
-    extension_router,
-]:
-    app.include_router(r, prefix="/api/v1")
+# Import and include routers — skip optional modules that need extra deps
+import importlib
+_router_modules = [
+    "auth", "properties", "units", "tenants", "leases", "payments",
+    "maintenance", "contractors", "documents", "chat", "financials", "webhooks",
+]
+for mod_name in _router_modules:
+    try:
+        mod = importlib.import_module(f"app.api.v1.{mod_name}")
+        app.include_router(mod.router, prefix="/api/v1")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Skipping router %s: %s", mod_name, e)
 
 
 @app.get("/health", tags=["health"])
