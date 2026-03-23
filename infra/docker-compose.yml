@@ -17,14 +17,14 @@ x-backend-common: &backend-common
 
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL 16 — primary data store
+  # PostgreSQL 16 — primary data store (FREE, local)
   # ---------------------------------------------------------------------------
   postgres:
     image: postgis/postgis:16-3.4
     container_name: realdeal-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-realdeal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-realdeal}
       POSTGRES_DB: ${POSTGRES_DB:-realdeal}
     volumes:
       - pg_data:/var/lib/postgresql/data
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Redis 7 — cache, Celery broker, rate-limit counters
+  # Redis 7 — cache, Celery broker, rate-limit counters (FREE, local)
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -64,6 +64,23 @@ services:
     networks:
       - realdeal-net
     restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Ollama — local AI / LLM (FREE, optional)
+  # Pull a model after starting: docker exec realdeal-ollama ollama pull llama3
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama
+    container_name: realdeal-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - realdeal-net
+    restart: unless-stopped
+    profiles:
+      - with-ollama
 
   # ---------------------------------------------------------------------------
   # Backend — FastAPI application server
@@ -125,22 +142,20 @@ services:
       - ../backend:/app:cached
 
   # ---------------------------------------------------------------------------
-  # Frontend — Next.js application
+  # Frontend — Vite React application
   # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ../frontend
       dockerfile: ../infra/Dockerfile.frontend
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN:-}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     container_name: realdeal-frontend
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN:-}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     depends_on:
       backend:
         condition: service_healthy
@@ -173,6 +188,8 @@ volumes:
   pg_data:
     driver: local
   redis_data:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:

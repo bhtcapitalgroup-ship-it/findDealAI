@@ -1,37 +1,68 @@
 """
 RealDeal AI - Notification Service
 
-Handles email alerts via SendGrid and push notifications for deal alerts,
-market updates, and account notifications.
+Handles email alerts for deal alerts, market updates, and account notifications.
+
+Email delivery priority:
+  1. SendGrid free tier (100 emails/day) -- if SENDGRID_API_KEY is set
+  2. SMTP fallback (Gmail SMTP free) -- if SMTP_HOST is set
+  3. Console logging (dev mode) -- if neither is configured
 """
 
 import logging
 import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Any, Optional
-
-import sendgrid
-from sendgrid.helpers.mail import Content, Email, Mail, To
 
 logger = logging.getLogger(__name__)
 
+# Configuration from environment
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
 FROM_EMAIL = os.getenv("NOTIFICATION_FROM_EMAIL", "alerts@realdeal-ai.com")
 FROM_NAME = os.getenv("NOTIFICATION_FROM_NAME", "RealDeal AI")
 APP_URL = os.getenv("APP_URL", "https://app.realdeal-ai.com")
 
+# SMTP configuration (Gmail or any SMTP provider)
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+
 
 class NotificationService:
-    """Send email and push notifications to users."""
+    """Send email and push notifications to users.
 
-    def __init__(self, api_key: Optional[str] = None):
-        self._api_key = api_key or SENDGRID_API_KEY
-        self._client: Optional[sendgrid.SendGridAPIClient] = None
+    Supports three email backends:
+      1. SendGrid (free tier: 100 emails/day)
+      2. SMTP (Gmail SMTP free with app password)
+      3. Console (dev mode -- logs email content)
+    """
+
+    def __init__(
+        self,
+        sendgrid_api_key: Optional[str] = None,
+        smtp_host: Optional[str] = None,
+        smtp_port: Optional[int] = None,
+        smtp_user: Optional[str] = None,
+        smtp_password: Optional[str] = None,
+    ):
+        self._sendgrid_key = sendgrid_api_key or SENDGRID_API_KEY
+        self._smtp_host = smtp_host or SMTP_HOST
+        self._smtp_port = smtp_port or SMTP_PORT
+        self._smtp_user = smtp_user or SMTP_USER
+        self._smtp_password = smtp_password or SMTP_PASSWORD
+        self._sendgrid_client = None
 
     @property
-    def client(self) -> sendgrid.SendGridAPIClient:
-        if self._client is None:
-            self._client = sendgrid.SendGridAPIClient(api_key=self._api_key)
-        return self._client
+    def _email_backend(self) -> str:
+        """Determine which email backend to use."""
+        if self._sendgrid_key:
+            return "sendgrid"
+        if self._smtp_host and self._smtp_user:
+            return "smtp"
+        return "console"
 
     # ------------------------------------------------------------------
     # Deal Alert Email
@@ -160,7 +191,6 @@ class NotificationService:
         In production, this would integrate with FCM or OneSignal.
         """
         try:
-            # Load user's push token from database
             push_token = self._get_push_token(user_id)
             if not push_token:
                 logger.debug("No push token for user %s", user_id)
@@ -278,7 +308,6 @@ class NotificationService:
                     </tr>
                 </table>
 
-                <!-- AI Summary -->
                 {"<div style='background: #eff6ff; border-left: 4px solid #1a56db; padding: 12px; margin: 16px 0; border-radius: 0 8px 8px 0;'><strong>AI Analysis:</strong> " + analysis.get("ai_summary", "")[:300] + "...</div>" if analysis.get("ai_summary") else ""}
 
                 <!-- CTA -->
@@ -335,18 +364,35 @@ class NotificationService:
         """
 
     # ------------------------------------------------------------------
-    # Core email sending
+    # Core email sending -- multi-backend
     # ------------------------------------------------------------------
 
     def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
-        """Send an email via SendGrid."""
-        if not self._api_key:
-            logger.warning(
-                "SendGrid API key not configured; email not sent to %s", to_email
-            )
-            return False
+        """Send an email using the best available backend."""
+        backend = self._email_backend
 
+        if backend == "sendgrid":
+            return self._send_via_sendgrid(to_email, subject, html_content)
+        elif backend == "smtp":
+            return self._send_via_smtp(to_email, subject, html_content)
+        else:
+            return self._send_via_console(to_email, subject, html_content)
+
+    # --- Backend 1: SendGrid (free tier: 100 emails/day) ---
+
+    def _send_via_sendgrid(
+        self, to_email: str, subject: str, html_content: str
+    ) -> bool:
+        """Send email via SendGrid free tier."""
         try:
+            import sendgrid
+            from sendgrid.helpers.mail import Content, Email, Mail, To
+
+            if self._sendgrid_client is None:
+                self._sendgrid_client = sendgrid.SendGridAPIClient(
+                    api_key=self._sendgrid_key
+                )
+
             message = Mail(
                 from_email=Email(FROM_EMAIL, FROM_NAME),
                 to_emails=To(to_email),
@@ -354,11 +400,11 @@ class NotificationService:
                 html_content=Content("text/html", html_content),
             )
 
-            response = self.client.send(message)
+            response = self._sendgrid_client.send(message)
 
             if response.status_code in (200, 201, 202):
                 logger.info(
-                    "Email sent to %s: %s (status %d)",
+                    "Email sent via SendGrid to %s: %s (status %d)",
                     to_email,
                     subject,
                     response.status_code,
@@ -371,11 +417,87 @@ class NotificationService:
                     to_email,
                     response.body,
                 )
+                # Fall back to SMTP if SendGrid fails
+                if self._smtp_host and self._smtp_user:
+                    logger.info("Falling back to SMTP...")
+                    return self._send_via_smtp(to_email, subject, html_content)
                 return False
 
+        except ImportError:
+            logger.warning(
+                "sendgrid package not installed; falling back to SMTP"
+            )
+            if self._smtp_host and self._smtp_user:
+                return self._send_via_smtp(to_email, subject, html_content)
+            return self._send_via_console(to_email, subject, html_content)
+
         except Exception as exc:
-            logger.error("Email send failed to %s: %s", to_email, exc)
+            logger.error("SendGrid send failed to %s: %s", to_email, exc)
+            # Fall back to SMTP
+            if self._smtp_host and self._smtp_user:
+                logger.info("Falling back to SMTP after SendGrid error...")
+                return self._send_via_smtp(to_email, subject, html_content)
             return False
+
+    # --- Backend 2: SMTP (Gmail free with app password) ---
+
+    def _send_via_smtp(
+        self, to_email: str, subject: str, html_content: str
+    ) -> bool:
+        """Send email via SMTP (works with Gmail, Outlook, any SMTP provider)."""
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{FROM_NAME} <{self._smtp_user or FROM_EMAIL}>"
+            msg["To"] = to_email
+
+            # Add HTML body
+            html_part = MIMEText(html_content, "html")
+            msg.attach(html_part)
+
+            # Connect and send
+            with smtplib.SMTP(self._smtp_host, self._smtp_port) as server:
+                server.ehlo()
+                if self._smtp_port == 587:
+                    server.starttls()
+                    server.ehlo()
+                if self._smtp_user and self._smtp_password:
+                    server.login(self._smtp_user, self._smtp_password)
+                server.send_message(msg)
+
+            logger.info(
+                "Email sent via SMTP to %s: %s",
+                to_email,
+                subject,
+            )
+            return True
+
+        except Exception as exc:
+            logger.error("SMTP send failed to %s: %s", to_email, exc)
+            return False
+
+    # --- Backend 3: Console (dev mode) ---
+
+    def _send_via_console(
+        self, to_email: str, subject: str, html_content: str
+    ) -> bool:
+        """Log email to console (dev mode -- no email service configured)."""
+        logger.info(
+            "\n"
+            "========== EMAIL (console mode) ==========\n"
+            "To: %s\n"
+            "Subject: %s\n"
+            "From: %s <%s>\n"
+            "Body length: %d chars\n"
+            "==========================================\n"
+            "NOTE: Configure SENDGRID_API_KEY or SMTP_HOST to send real emails.\n",
+            to_email,
+            subject,
+            FROM_NAME,
+            FROM_EMAIL,
+            len(html_content),
+        )
+        return True  # Return True so the app doesn't treat dev mode as failure
 
     # ------------------------------------------------------------------
     # Helpers
